@@ -1,22 +1,25 @@
 // background.js – MV3 Service Worker
 // Handles extension lifecycle and cross-tab messaging
-
-chrome.runtime.onInstalled.addListener(() => {
-  console.log('[ChainGuardian] Installed successfully');
-  chrome.storage.local.set({
-    blockedCount: 0,
-    savedAmount: '0',
-    enabled: true
-  });
-});
-
-// Listen for messages from content scripts
-chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (msg.type === 'BLOCKED_TX') {
-    chrome.storage.local.get(['blockedCount'], (data) => {
-      chrome.storage.local.set({ blockedCount: (data.blockedCount || 0) + 1 });
+// background.js - The Security Bypass
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.type === 'ANALYZE_TX_REMOTE') {
+    console.log('[ChainGuardian Background] Fetching risk for:', request.tx);
+    
+    fetch('http://localhost:3000/risk', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tx: request.tx })
+    })
+    .then(response => response.json())
+    .then(data => {
+      console.log('[ChainGuardian Background] Success:', data);
+      sendResponse(data);
+    })
+    .catch(err => {
+      console.error('[ChainGuardian Background] Fetch failed:', err);
+      sendResponse({ error: err.message, offline: true });
     });
+    
+    return true; // Keep the channel open for async fetch
   }
-  sendResponse({ ok: true });
-  return true;
 });
