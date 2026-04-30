@@ -1,3 +1,55 @@
+
+// =====================================================================
+// 🛡️ LAYER 1: ZERO-DAY PHISHING & TYPOSQUATTING DEFENSE
+// =====================================================================
+
+const PROTECTED_DOMAINS = [
+  'uniswap.org',
+  'aave.com',
+  'opensea.io',
+  'blur.io',
+  'curve.fi',
+  'pancakeswap.finance',
+  'lido.fi',
+  'makerdao.com',
+  'microsoft.com' 
+];
+
+function levenshteinDistance(a, b) {
+  const matrix = [];
+  for (let i = 0; i <= b.length; i++) matrix[i] = [i];
+  for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
+
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      if (b.charAt(i - 1) === a.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(matrix[i - 1][j - 1] + 1, Math.min(matrix[i][j - 1] + 1, matrix[i - 1][j] + 1));
+      }
+    }
+  }
+  return matrix[b.length][a.length];
+}
+
+// This function returns a warning string if phishing is detected, or null if safe
+function checkDomainPhishing() {
+  const currentHostname = window.location.hostname.replace(/^www\./, '').toLowerCase();
+
+  if (PROTECTED_DOMAINS.includes(currentHostname) || currentHostname === 'localhost' || currentHostname === '127.0.0.1') {
+    return null; // Safe
+  }
+
+  for (const target of PROTECTED_DOMAINS) {
+    const distance = levenshteinDistance(currentHostname, target);
+    if (distance > 0 && distance <= 2 && Math.abs(currentHostname.length - target.length) <= 2) {
+      return { fake: currentHostname, real: target };
+    }
+  }
+  return null; // Safe
+}
+
+
 console.log("🔥 ChainGuardian MAIN WORLD HOOKED");
 (function () {
   const BACKEND = 'http://localhost:3000';
@@ -111,6 +163,156 @@ async function analyzeTransaction(tx) {
 
   // ─── Show risk popup ──────────────────────────────────────────────────────────
 // ─── Show risk popup ──────────────────────────────────────────────────────────
+// ─── Show risk popup ──────────────────────────────────────────────────────────
+function showRiskPopup(result, tx) {
+  return new Promise((resolve) => {
+    const existing = document.getElementById('cg-overlay');
+    if (existing) existing.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'cg-overlay';
+
+    // 1. DYNAMIC UI LOGIC
+    const riskColor = result.risk >= 80 ? '#FF3B3B' : result.risk >= 50 ? '#FF8C00' : '#00FF88';
+    const riskEmoji = result.risk >= 80 ? '🚨' : result.risk >= 50 ? '⚠️' : '✅';
+    const riskLabel = result.risk >= 80 ? 'DANGER' : result.risk >= 50 ? 'HIGH RISK' : 'SAFE / SECURE';
+
+    // 2. DYNAMIC HINDI MESSAGING
+    let hindiMsg = `🇮🇳 यह लेनदेन सुरक्षित है। ${result.risk}% जोखिम – आप आगे बढ़ सकते हैं।`;
+    if (result.risk >= 80) hindiMsg = `🇮🇳 यह लेनदेन खतरनाक है! ${result.risk}% जोखिम – अपना पैसा बचाएं, BLOCK करें! 🛑`;
+    else if (result.risk >= 50) hindiMsg = `🇮🇳 चेतावनी! ${result.risk}% जोखिम – सावधानी से सोचें।`;
+
+    // 3. CHECK FOR DOMAIN PHISHING 
+    const domainWarning = checkDomainPhishing();
+    const domainHtml = domainWarning 
+      ? `<div id="cg-domain-alert">
+           <strong>🚨 DOMAIN ALERT:</strong> You are visiting <span style="text-decoration:line-through">${domainWarning.fake}</span>. 
+           This is a known typosquatting attack simulating <span style="text-decoration:underline">${domainWarning.real}</span>.
+         </div>`
+      : '';
+
+    const slitherHtml = result.slither && result.slither.length > 0
+      ? result.slither.slice(0, 3).map(s =>
+          `<div class="cg-bug">🔴 Slither: ${escHtml(s)}</div>`
+        ).join('')
+      : '';
+
+    const whaleHtml = result.whale > 0
+      ? `<div class="cg-check">🐋 Whale concentration: <strong>${result.whale}%</strong> (top holder)</div>`
+      : '';
+
+    overlay.innerHTML = `
+      <style>
+        #cg-overlay {
+          position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+          background: rgba(0,0,0,0.82);
+          z-index: 2147483647;
+          display: flex; align-items: center; justify-content: center;
+          font-family: 'Segoe UI', system-ui, sans-serif;
+          backdrop-filter: blur(4px);
+        }
+        #cg-card {
+          background: #0D0D1A;
+          border: 2px solid ${riskColor};
+          border-radius: 16px;
+          padding: 28px 32px;
+          max-width: 480px; width: 90%;
+          box-shadow: 0 0 60px ${riskColor}44;
+          animation: cgSlideIn 0.3s cubic-bezier(0.34,1.56,0.64,1);
+        }
+        @keyframes cgSlideIn {
+          from { transform: translateY(-30px) scale(0.95); opacity: 0; }
+          to   { transform: translateY(0) scale(1); opacity: 1; }
+        }
+        #cg-risk-badge {
+          font-size: 42px; font-weight: 900;
+          color: ${riskColor};
+          text-align: center; margin: 8px 0 4px;
+          text-shadow: 0 0 30px ${riskColor}88;
+        }
+        #cg-label {
+          text-align: center; color: ${riskColor};
+          font-size: 13px; font-weight: 700; letter-spacing: 3px;
+          text-transform: uppercase; margin-bottom: 16px;
+        }
+        #cg-domain-alert {
+          background: #4A0000; border-left: 4px solid #FF3B3B;
+          color: #FFB3B3; font-size: 13px; padding: 10px;
+          border-radius: 6px; margin-bottom: 14px;
+          line-height: 1.4;
+        }
+        #cg-title { font-size: 18px; font-weight: 700; color: #fff; margin-bottom: 4px; }
+        #cg-ai { color: #ccc; font-size: 14px; line-height: 1.5; margin-bottom: 14px; border-left: 3px solid ${riskColor}; padding-left: 10px; }
+        .cg-check { color: #bbb; font-size: 13px; margin: 5px 0; }
+        .cg-bug { color: #ff6b6b; font-size: 13px; margin: 5px 0; background: #1a0808; padding: 4px 8px; border-radius: 4px; }
+        #cg-hindi { color: #f0c040; font-size: 13px; background: #1a1500; border-radius: 6px; padding: 8px 10px; margin: 12px 0; }
+        #cg-btns { display: flex; gap: 12px; margin-top: 18px; }
+        #cg-block {
+          flex: 1; background: #FF3B3B; color: #fff;
+          border: none; border-radius: 10px; padding: 14px;
+          font-size: 15px; font-weight: 700; cursor: pointer;
+          transition: transform 0.1s, box-shadow 0.2s;
+        }
+        #cg-block:hover { transform: scale(1.02); box-shadow: 0 0 20px #FF3B3B88; }
+        #cg-force {
+          flex: 1; background: transparent; color: #888;
+          border: 1px solid #444; border-radius: 10px; padding: 14px;
+          font-size: 13px; cursor: pointer;
+        }
+        #cg-force:hover { border-color: #888; color: #ccc; }
+        #cg-contract { font-size: 11px; color: #555; word-break: break-all; margin-top: 10px; }
+        #cg-loading { color: #888; font-size: 12px; text-align: center; margin-top: 8px; }
+        #cg-offline { color: #FF8C00; font-size: 11px; text-align: center; padding: 4px; }
+      </style>
+      <div id="cg-card">
+        <div style="text-align:center; font-size:28px">${riskEmoji}</div>
+        <div id="cg-risk-badge">${result.risk}% ${riskLabel}</div>
+        <div id="cg-label">ChainGuardian AI Analysis</div>
+        
+        ${domainHtml} <!-- This is where the domain alert is injected! -->
+
+        ${result.offline ? '<div id="cg-offline">⚡ Offline mode – backend unreachable</div>' : ''}
+        <div id="cg-ai">${escHtml(result.aiExplain || 'Risk signals detected.')}</div>
+        ${whaleHtml}
+        ${slitherHtml}
+        ${result.checks && result.checks.unlimited ? '<div class="cg-bug">🔴 Unlimited approval (uint256.max) detected</div>' : ''}
+        ${result.checks && result.checks.unverified ? '<div class="cg-check">❌ Contract source unverified on Etherscan</div>' : ''}
+        ${result.checks && result.checks.drainDetected ? '<div class="cg-bug">🔴 Balance drain detected in simulation</div>' : ''}
+        <div id="cg-hindi">
+          ${hindiMsg}
+        </div>
+        <div id="cg-contract">📍 Contract: ${tx.to || 'Unknown'}</div>
+        <div id="cg-btns">
+          <button id="cg-block">🛡️ BLOCK SAFE</button>
+          <button id="cg-force">⚡ Force Approve →</button>
+        </div>
+        <div id="cg-loading">ChainGuardian v1.0 | Sepolia Demo | 8-check AI engine</div>
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    document.getElementById('cg-block').onclick = () => {
+      overlay.remove();
+      resolve('block');
+    };
+
+    document.getElementById('cg-force').onclick = () => {
+      overlay.remove();
+      resolve('approve');
+    };
+
+    const keyHandler = (e) => {
+      if (e.key === 'Escape') {
+        overlay.remove();
+        document.removeEventListener('keydown', keyHandler);
+        resolve('block');
+      }
+    };
+    document.addEventListener('keydown', keyHandler);
+  });
+}
+/*
 function showRiskPopup(result, tx) {
   return new Promise((resolve) => {
     const existing = document.getElementById('cg-overlay');
@@ -240,7 +442,7 @@ function showRiskPopup(result, tx) {
     };
     document.addEventListener('keydown', keyHandler);
   });
-}
+} */
 
   // ─── Log intent on-chain ──────────────────────────────────────────────────────
 // ─── Log intent on-chain ──────────────────────────────────────────────────────
