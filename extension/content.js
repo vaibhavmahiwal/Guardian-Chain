@@ -31,7 +31,58 @@ function levenshteinDistance(a, b) {
   }
   return matrix[b.length][a.length];
 }
+// =====================================================================
+// 🛡️ LAYER 2: AI DOM NLP & SOCIAL ENGINEERING SHIELD
+// =====================================================================
 
+function scanPageForSocialEngineering() {
+  // Grab text from the page, clean it up, take the first 1500 chars
+  const pageText = document.body.innerText.replace(/\s+/g, ' ').toLowerCase().substring(0, 1500);
+  
+  // High-risk Web3 phishing keywords (FOMO, urgency, fake promises)
+  const riskKeywords = [
+    'claim airdrop', 'limited time', 'multiplier', 'guaranteed return', 
+    'connect to claim', 'verify your wallet', 'double your', 'giveaway',
+    'eligibility check', 'hurry', 'airdrop'
+  ];
+  
+  let riskScore = 0;
+  const foundTriggers = [];
+
+  riskKeywords.forEach(word => {
+    if (pageText.includes(word)) {
+      riskScore += 25;
+      foundTriggers.push(word);
+    }
+  });
+
+  // If score is high enough, trigger the UI warning
+  if (riskScore >= 50) {
+    injectPhishingBanner(foundTriggers);
+  }
+}
+
+function injectPhishingBanner(triggers) {
+  // Don't inject twice
+  if (document.getElementById('cg-phishing-banner')) return;
+
+  const banner = document.createElement('div');
+  banner.id = 'cg-phishing-banner';
+  banner.innerHTML = `
+    <div style="display: flex; align-items: center; justify-content: center; gap: 12px; padding: 12px; background: rgba(255, 59, 59, 0.1); border-bottom: 1px solid rgba(255, 59, 59, 0.3); backdrop-filter: blur(10px); color: #FF3B3B; font-family: system-ui, sans-serif; font-size: 13px; z-index: 2147483647; position: fixed; top: 0; left: 0; right: 0;">
+      <span style="font-size: 16px;">🚨</span>
+      <strong>ChainGuardian AI Warning:</strong> High social engineering risk detected on this page. 
+      <span style="opacity: 0.8;">(Triggers: ${triggers.slice(0,2).join(', ')})</span>
+      <button onclick="this.parentElement.remove()" style="background: transparent; border: 1px solid #FF3B3B; color: #FF3B3B; border-radius: 4px; padding: 4px 8px; margin-left: 12px; cursor: pointer; font-size: 11px;">Dismiss</button>
+    </div>
+  `;
+  document.body.prepend(banner);
+}
+
+// Run the scan exactly 1.5 seconds after the page loads to ensure React/Vue apps have rendered text
+window.addEventListener('load', () => {
+  setTimeout(scanPageForSocialEngineering, 1500);
+});
 function checkDomainPhishing() {
   const currentHostname = window.location.hostname.replace(/^www\./, '').toLowerCase();
   if (PROTECTED_DOMAINS.includes(currentHostname) || currentHostname === 'localhost' || currentHostname === '127.0.0.1') {

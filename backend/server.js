@@ -1,7 +1,6 @@
 // server.js – ChainGuardian Backend
 // Node.js Express API with 8 on-chain risk checks + AI explain
 // Deploy on Render (free tier): https://render.com
-
 import express from 'express';
 import cors from 'cors';
 import { ethers } from 'ethers';
@@ -163,6 +162,34 @@ async function analyzeUnverifiedBytecode(address) {
     throw error;
   }
 }
+// ─── GoPlus Security API Integration ──────────────────────────────────────────
+async function checkGoPlusSecurity(contractAddress) {
+  try {
+    // Chain ID 1 is Ethereum Mainnet. (GoPlus supports testnets, but mainnet has the best data).
+    // For a hackathon demo, we will query Ethereum Mainnet data.
+    const res = await fetch(`https://api.gopluslabs.io/api/v1/token_security/1?contract_addresses=${contractAddress}`);
+    const data = await res.json();
+    
+    const lowAddress = contractAddress.toLowerCase();
+    
+    // If GoPlus has data on this token
+    if (data.code === 1 && data.result && data.result[lowAddress]) {
+      const token = data.result[lowAddress];
+      
+      return {
+        isHoneypot: token.is_honeypot === "1",
+        cannotSellAll: token.cannot_sell_all === "1",
+        tradingCooldown: token.trading_cooldown === "1",
+        // Here is how we check historical fraud like your mentor asked!
+        creatorHasHistory: token.honeypot_with_same_creator === "1" 
+      };
+    }
+    return null; // Token not found in GoPlus database
+  } catch (error) {
+    console.error("[GoPlus] API Error:", error.message);
+    return null;
+  }
+}
 app.use(cors({ origin: '*' }));
 app.use(express.json({ limit: '2mb' }));
 
@@ -297,8 +324,22 @@ const BLACKLISTED_EOAS = [
     // =====================================================================
     console.log(`[ChainGuardian] Demo bypassed. Running REAL live analysis...`);
     
-    // Run all 8 checks in parallel
-    const checkResults = await runChecks(tx);
+// Run all local checks in parallel
+const checkResults = await runChecks(tx);
+
+// ✨ CALL GOPLUS API ✨
+const goPlusData = await checkGoPlusSecurity(toAddress);
+
+// Merge GoPlus data into our local checks
+if (goPlusData) {
+  checkResults.honeypot = goPlusData.isHoneypot || goPlusData.cannotSellAll;
+  checkResults.creatorHistory = goPlusData.creatorHasHistory;
+  
+  if (goPlusData.isHoneypot) log.danger(`[GoPlus] HONEYPOT DETECTED!`);
+  if (goPlusData.creatorHasHistory) log.warn(`[GoPlus] Creator has launched previous scams!`);
+} else {
+  checkResults.honeypot = false; // Default to false if not found
+}
 
     // 🚨 THE EXPLICIT BYTECODE PIVOT 🚨
     // If runChecks realizes the source is hidden, we intercept the flow here!
@@ -334,31 +375,37 @@ const BLACKLISTED_EOAS = [
     if (checkResults.drainDetected)    { score += 25; flags.push('Balance drain in simulation'); }
     if (checkResults.highOpcodes)      { score += 15; flags.push(`High opcode count: ${checkResults.opcodeCount} CALL/JUMPI`); }
     if (checkResults.lowActivity)      { score += 10; flags.push('Low active addresses (<50)'); }
+    // Add massive penalties for GoPlus flags
+    if (checkResults.honeypot) { score += 100; flags.push('GoPlus API: Verified Honeypot / Cannot Sell'); }
+    if (checkResults.creatorHistory) { score += 50; flags.push('GoPlus API: Creator has launched previous honeypots'); }
 
     const riskScore = Math.min(score, 100);
 
-    // Get AI explanation
-    const explanation = await aiExplain(riskScore, flags, checkResults);
+ // Get AI explanation and Transaction Decoding
+ const aiData = await aiExplain(riskScore, flags, checkResults, tx);
 
-    const response = {
-      risk: riskScore,
-      aiExplain: explanation,
-      slither: checkResults.slither,
-      whale: checkResults.whale,
-      checks: {
-        whale: checkResults.whale > 50,
-        tvlDrop: checkResults.tvlDrop,
-        slitherBugs: checkResults.slither.length,
-        unlimited: checkResults.unlimited,
-        unverified: checkResults.unverified,
-        drainDetected: checkResults.drainDetected,
-        highOpcodes: checkResults.highOpcodes,
-        lowActivity: checkResults.lowActivity
-      },
-      flags,
-      responseMs: Date.now() - startTime,
-      offline: false 
-    };
+ const response = {
+  risk: riskScore,
+  aiExplain: aiData.text,
+  humanTranslation: aiData.translation, 
+  slither: checkResults.slither,
+  whale: checkResults.whale,
+  checks: {
+    whale: checkResults.whale > 50,
+    tvlDrop: checkResults.tvlDrop,
+    slitherBugs: checkResults.slither.length,
+    unlimited: checkResults.unlimited,
+    unverified: checkResults.unverified,
+    drainDetected: checkResults.drainDetected,
+    highOpcodes: checkResults.highOpcodes,
+    lowActivity: checkResults.lowActivity,
+    honeypot: checkResults.honeypot,             
+    creatorHistory: checkResults.creatorHistory  
+  },
+  flags,
+  responseMs: Date.now() - startTime,
+  offline: false 
+};
 
     console.log(`[/risk] Score: ${riskScore} | Flags: ${flags.length} | ${response.responseMs}ms`);
     res.json(response);
